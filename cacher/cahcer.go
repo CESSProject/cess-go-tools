@@ -26,6 +26,7 @@ type FileCache interface {
 	AddCacheRecord(fname, fpath string) error
 	GetCacheRecord(fname string) (string, error)
 	RemoveCacheRecord(fname string) error
+	FlushAndCleanCache(wantSize int64) bool
 }
 
 type Cacher struct {
@@ -35,6 +36,11 @@ type Cacher struct {
 	usedSpace  int64
 	exp        time.Duration
 	CacheDir   string
+}
+
+type CacheItem struct {
+	Cpath string
+	Csize int64
 }
 
 func NewCacher(exp time.Duration, maxSpace int64, cacheDir string) FileCache {
@@ -52,11 +58,11 @@ func NewCacher(exp time.Duration, maxSpace int64, cacheDir string) FileCache {
 		cacheSpace: maxSpace,
 	}
 	cacher.cacher.SetAboutToDeleteItemCallback(func(ci *cache2go.CacheItem) {
-		fpath, ok := ci.Data().(string)
+		item, ok := ci.Data().(CacheItem)
 		if !ok {
 			return
 		}
-		cacher.removeFile(fpath)
+		cacher.removeFile(item.Cpath)
 	})
 
 	// restore cache record
@@ -71,7 +77,10 @@ func NewCacher(exp time.Duration, maxSpace int64, cacheDir string) FileCache {
 		if info.Size() <= 0 || info.IsDir() {
 			return nil
 		}
-		cacher.cacher.Add(d.Name(), cacher.exp, path)
+		cacher.cacher.Add(
+			d.Name(), cacher.exp,
+			CacheItem{Cpath: path, Csize: info.Size()},
+		)
 		return nil
 	})
 	return cacher
@@ -90,7 +99,7 @@ func (c *Cacher) MoveFileToCache(fname, fpath string) error {
 	size := f.Size()
 	if err == nil {
 		if f2.Size() == size {
-			c.cacher.Add(fname, c.exp, cpath)
+			c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: f2.Size()})
 			return nil
 		}
 		size -= f2.Size()
@@ -115,7 +124,9 @@ func (c *Cacher) MoveFileToCache(fname, fpath string) error {
 		return errors.Wrap(err, "move file to cache error")
 	}
 	if c.usedSpace+size > c.cacheSpace || int64(free) < size {
-		return errors.Wrap(errors.New("not enough cache space"), "move file to cache error")
+		if !c.cacheSwapout(size) {
+			return errors.Wrap(errors.New("not enough cache space"), "move file to cache error")
+		}
 	}
 
 	_, err = io.Copy(output, input)
@@ -123,7 +134,7 @@ func (c *Cacher) MoveFileToCache(fname, fpath string) error {
 		return errors.Wrap(err, "move file to cache error")
 	}
 	os.Remove(fpath)
-	c.cacher.Add(fname, c.exp, cpath)
+	c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: size})
 	c.usedSpace += size
 	return nil
 }
@@ -134,7 +145,7 @@ func (c *Cacher) SaveDataToCache(fname string, data []byte) error {
 	size := f.Size()
 	if err == nil {
 		if size == int64(len(data)) {
-			c.cacher.Add(fname, c.exp, cpath)
+			c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: size})
 			return nil
 		}
 		size = int64(len(data)) - size
@@ -147,7 +158,9 @@ func (c *Cacher) SaveDataToCache(fname string, data []byte) error {
 		return errors.Wrap(err, "save file to cache error")
 	}
 	if c.usedSpace+size > c.cacheSpace || int64(free) < size {
-		return errors.Wrap(errors.New("not enough cache space"), "save file to cache error")
+		if !c.cacheSwapout(size) {
+			return errors.Wrap(errors.New("not enough cache space"), "save file to cache error")
+		}
 	}
 	file, err := os.Create(cpath)
 	if err != nil {
@@ -157,7 +170,7 @@ func (c *Cacher) SaveDataToCache(fname string, data []byte) error {
 	if err != nil {
 		return errors.Wrap(err, "save file to cache error")
 	}
-	c.cacher.Add(fname, c.exp, cpath)
+	c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: size})
 	c.usedSpace += size
 	return nil
 }
@@ -173,7 +186,7 @@ func (c *Cacher) AddCacheRecord(fname, cpath string) error {
 	if f.Size() <= 0 {
 		return errors.Wrap(errors.New("invalid file"), "add cache record error")
 	}
-	c.cacher.Add(fname, c.exp, cpath)
+	c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: f.Size()})
 	return nil
 }
 
@@ -182,11 +195,11 @@ func (c *Cacher) GetCacheRecord(fname string) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "get cache record error")
 	}
-	fdir, ok := value.Data().(string)
+	item, ok := value.Data().(CacheItem)
 	if !ok {
-		return fdir, errors.Wrap(err, "get cache record error")
+		return "", errors.Wrap(err, "get cache record error")
 	}
-	return fdir, nil
+	return item.Cpath, nil
 }
 
 func (c *Cacher) RemoveCacheRecord(fname string) error {
@@ -198,11 +211,11 @@ func (c *Cacher) RemoveCacheRecord(fname string) error {
 		return errors.Wrap(err, "remove cache record error")
 	}
 
-	fpath, ok := value.Data().(string)
+	item, ok := value.Data().(CacheItem)
 	if !ok {
 		return errors.Wrap(errors.New("bad cache record"), "remove cache record error")
 	}
-	err = c.removeFile(fpath)
+	err = c.removeFile(item.Cpath)
 	return errors.Wrap(err, "remove cache record error")
 }
 
@@ -211,7 +224,6 @@ func (c *Cacher) removeFile(fpath string) error {
 	if err != nil {
 		return errors.Wrap(err, "remove cached file error")
 	}
-
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if f.Size() > c.usedSpace {
@@ -225,3 +237,98 @@ func (c *Cacher) removeFile(fpath string) error {
 	}
 	return nil
 }
+
+func (c *Cacher) FlushAndCleanCache(wantSize int64) bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if float64(c.usedSpace)/float64(c.cacheSpace) < 0.75 {
+		return false
+	}
+	return c.cacheSwapout(wantSize)
+}
+func (c *Cacher) cacheSwapout(size int64) bool {
+	dqSize, delSize := int64(0), size-(c.cacheSpace-c.usedSpace)
+	delQueue := make([]*cache2go.CacheItem, 0)
+	if delSize <= 0 {
+		return false
+	}
+	if c.cacheSpace-size <= 0 || c.usedSpace-size <= 0 {
+		return false
+	}
+	c.cacher.Foreach(func(key interface{}, item *cache2go.CacheItem) {
+		v, ok := item.Data().(CacheItem)
+		if !ok {
+			return
+		}
+		c.insertNode(&delQueue, item)
+		if dqSize < delSize {
+			dqSize += v.Csize
+		} else {
+			sv := delQueue[len(delQueue)-1].Data().(CacheItem)
+			if dqSize-sv.Csize >= delSize {
+				delQueue = delQueue[:len(delQueue)-1]
+				dqSize -= sv.Csize
+			}
+		}
+	})
+
+	if dqSize < delSize {
+		return false
+	}
+
+	for _, item := range delQueue {
+		value, err := c.cacher.Delete(item.Key())
+		if err != nil {
+			return false
+		}
+		v, ok := value.Data().(CacheItem)
+		if !ok {
+			return false
+		}
+		err = os.Remove(v.Cpath)
+		if err != nil {
+			return false
+		}
+		c.usedSpace -= v.Csize
+	}
+
+	return true
+}
+
+func (c *Cacher) insertNode(queue *([]*cache2go.CacheItem), elem *cache2go.CacheItem) {
+	i, length := 0, len(*queue)
+	for i = 0; i < length; i++ {
+		tv := time.Since(elem.AccessedOn()) - time.Since((*queue)[i].AccessedOn())
+		if tv > c.exp/6 ||
+			(tv > 0 && elem.AccessCount() < (*queue)[i].AccessCount()) {
+			break
+		}
+	}
+	*queue = append(*queue, &cache2go.CacheItem{})
+	copy((*queue)[i+1:length+1], (*queue)[i:length])
+	(*queue)[i] = elem
+}
+
+/*
+func (c *NodeChan) insertNode(info NodeInfo, maxNum int) {
+	var i int
+	for i = c.count - 1; i >= c.index; i-- {
+		ttl := c.queue[i].TTL - info.TTL
+		if ttl > time.Microsecond*5 ||
+			(ttl >= 0 && info.NePoints < c.queue[i].NePoints) {
+			continue
+		}
+		break
+	}
+	if c.count == maxNum {
+		if i >= c.count-1 {
+			return
+		}
+	} else {
+		c.count++
+		c.queue = append(c.queue, NodeInfo{})
+	}
+	copy(c.queue[i+1+1:], c.queue[i+1:c.count-1])
+	c.queue[i+1] = info
+}
+*/

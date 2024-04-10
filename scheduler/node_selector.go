@@ -15,7 +15,6 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -219,10 +218,8 @@ func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discovere
 		}
 		addr, err := discoverer.FindPeer(context.Background(), peer.ID(k))
 		if err != nil {
-			log.Println("flush list peer error", err)
 			return true
 		}
-		log.Println("flush list peer", addr)
 		v.AddrInfo = addr
 		v.FlushTime = time.Now()
 		v.TTL = GetConnectTTL(addr.Addrs, pingTimeout)
@@ -273,7 +270,6 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, peers ...peer.A
 		if info.TTL > 0 && info.TTL < time.Duration(s.config.MaxTTL) {
 			info.Available = true
 		}
-		log.Println("save", key, info.Available, info.TTL)
 		point.Store(key, info)
 	}
 }
@@ -305,7 +301,6 @@ func (s *NodeSelector) NewPeersIterator(minNum int) (Iterator, error) {
 	if nodeCh.count < minNum {
 		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
 	}
-	log.Println("node queue", nodeCh.queue)
 	return nodeCh, nil
 }
 
