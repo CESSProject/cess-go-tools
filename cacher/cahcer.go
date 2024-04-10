@@ -308,27 +308,3 @@ func (c *Cacher) insertNode(queue *([]*cache2go.CacheItem), elem *cache2go.Cache
 	copy((*queue)[i+1:length+1], (*queue)[i:length])
 	(*queue)[i] = elem
 }
-
-/*
-func (c *NodeChan) insertNode(info NodeInfo, maxNum int) {
-	var i int
-	for i = c.count - 1; i >= c.index; i-- {
-		ttl := c.queue[i].TTL - info.TTL
-		if ttl > time.Microsecond*5 ||
-			(ttl >= 0 && info.NePoints < c.queue[i].NePoints) {
-			continue
-		}
-		break
-	}
-	if c.count == maxNum {
-		if i >= c.count-1 {
-			return
-		}
-	} else {
-		c.count++
-		c.queue = append(c.queue, NodeInfo{})
-	}
-	copy(c.queue[i+1+1:], c.queue[i+1:c.count-1])
-	c.queue[i+1] = info
-}
-*/
