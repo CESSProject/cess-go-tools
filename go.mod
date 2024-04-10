@@ -1,4 +1,4 @@
-module github.com/jiuquxzy/cess-go-tools
+module github.com/CESSProject/cess-go-tools
 
 go 1.20
 

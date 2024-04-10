@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jiuquxzy/cess-go-tools/utils"
+	"github.com/CESSProject/cess-go-tools/utils"
 	"github.com/muesli/cache2go"
 	"github.com/pkg/errors"
 )
