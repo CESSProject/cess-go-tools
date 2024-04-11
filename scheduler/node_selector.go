@@ -238,9 +238,9 @@ func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discovere
 	s.listPeers.Range(func(key, value any) bool {
 		k := key.(string)
 		v := value.(NodeInfo)
-		if v.Available && time.Since(v.FlushTime) < time.Hour {
-			return true
-		}
+		// if v.Available && time.Since(v.FlushTime) < time.Hour {
+		// 	return true
+		// }
 		bk, err := base58.Decode(k)
 		if err != nil {
 			return true
