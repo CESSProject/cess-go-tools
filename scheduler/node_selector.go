@@ -15,7 +15,6 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -42,7 +41,7 @@ const (
 	MAX_FAILED_CONN      = 3
 	NODE_LIST_TEMP       = `{
 		"allowed_peers":{
-			"12D3KooWS3MWZZmRuejE2t2oJKQ9eNHxfnqw6EVxRRtYV3XPQkHy":"/ip4/127.0.0.1/tcp/4001"
+			"12D3KooWS3MWZZmRuejE2t2oJKQ9eNHxfnqw6EVxRRtYV3XPQkHy":"/ip4/127.0.0.1/tcp/4001" 
 		},
 		"disallowed_peers":[
 			"12D3KooWS3MWZZmRuejE2t2oJKQ9eNHxfnqw6EVxRRtYV3XPQkHy"
@@ -67,7 +66,7 @@ type Discoverer interface {
 }
 
 type NodeList struct {
-	AllowedPeers    map[string]string `json:"allowed_peers"` // k=peerId,value=muti-address
+	AllowedPeers    map[string]string `json:"allowed_peers"` // k=peerId; value=muti-address, if null, autocomplete
 	DisallowedPeers []string          `json:"disallowed_peers"`
 }
 
@@ -165,11 +164,12 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 			break
 		}
 		addr, err := multiaddr.NewMultiaddr(addrStr)
-
-		if err != nil {
-			continue
+		var ttl time.Duration
+		var addrs []multiaddr.Multiaddr
+		if err == nil {
+			ttl = GetConnectTTL([]multiaddr.Multiaddr{addr}, DEFAULT_TIMEOUT)
+			addrs = []multiaddr.Multiaddr{addr}
 		}
-		ttl := GetConnectTTL([]multiaddr.Multiaddr{addr}, DEFAULT_TIMEOUT)
 		bk, err := base58.Decode(key)
 		if err != nil {
 			continue
@@ -177,7 +177,7 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 		info := NodeInfo{
 			AddrInfo: peer.AddrInfo{
 				ID:    peer.ID(bk),
-				Addrs: []multiaddr.Multiaddr{addr},
+				Addrs: addrs,
 			},
 			FlushTime: time.Now(),
 			Available: ttl > 0 && ttl <= time.Duration(maxTTL),
@@ -238,19 +238,17 @@ func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discovere
 	s.listPeers.Range(func(key, value any) bool {
 		k := key.(string)
 		v := value.(NodeInfo)
-		// if v.Available && time.Since(v.FlushTime) < time.Hour {
-		// 	return true
-		// }
+		if v.Available && time.Since(v.FlushTime) < time.Hour {
+			return true
+		}
 		bk, err := base58.Decode(k)
 		if err != nil {
 			return true
 		}
 		addr, err := discoverer.FindPeer(context.Background(), peer.ID(bk))
 		if err != nil {
-			log.Println("find peer error", err)
 			return true
 		}
-		log.Println("find peer", addr.ID.String())
 		v.AddrInfo = addr
 		v.FlushTime = time.Now()
 		v.TTL = GetConnectTTL(addr.Addrs, pingTimeout)
