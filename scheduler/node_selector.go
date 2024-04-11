@@ -164,6 +164,7 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 			break
 		}
 		addr, err := multiaddr.NewMultiaddr(addrStr)
+
 		if err != nil {
 			continue
 		}
@@ -178,7 +179,7 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 			TTL:       ttl,
 		}
 		selector.listPeers.Store(key, info)
-		log.Println("add peer", key, ttl, info.Available)
+		log.Println("add peer", key, ttl, info.Available, addr.String())
 		selector.peerNum.Add(1)
 		count++
 	}
