@@ -247,6 +247,7 @@ func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discovere
 		}
 		addr, err := discoverer.FindPeer(context.Background(), peer.ID(bk))
 		if err != nil {
+			log.Println("find peer error", err)
 			return true
 		}
 		log.Println("find peer", addr.ID.String())
