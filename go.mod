@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/go-ping/ping v1.1.0
-	github.com/libp2p/go-libp2p v0.32.2
+	github.com/libp2p/go-libp2p v0.33.2
 	github.com/muesli/cache2go v0.0.0-20221011235721-518229cd8021
 	github.com/multiformats/go-multiaddr v0.12.3
 	github.com/pixelbender/go-traceroute v0.0.0-20190414152342-e631ab553a80

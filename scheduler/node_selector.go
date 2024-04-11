@@ -38,6 +38,14 @@ const (
 	DEFAULT_TIMEOUT      = 5 * time.Second
 	DEFAULT_FLUSH_TIME   = time.Hour * 4
 	MAX_FAILED_CONN      = 3
+	NODE_LIST_TEMP       = `{
+		"allowed_peers":{
+			"peer_id":"/ip4/1.2.3.4/tcp/80",
+		},
+		"disallowed_peers":[
+			"peer_id",
+		]
+	}`
 )
 
 type Selector interface {
@@ -57,8 +65,8 @@ type Discoverer interface {
 }
 
 type NodeList struct {
-	AllowedPeers    []string `json:"allowed_peers"` //
-	DisallowedPeers []string `json:"disallowed_peers"`
+	AllowedPeers    map[string]string `json:"allowed_peers"` // k=peerId,value=muti-address
+	DisallowedPeers []string          `json:"disallowed_peers"`
 }
 
 type SelectorConfig struct {
@@ -133,17 +141,9 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 	} else {
 		f, err := os.Create(nodeFilePath)
 		if err == nil {
-			jbytes, err := json.Marshal(nodeList)
-			if err == nil {
-				f.Write(jbytes)
-			}
+			f.WriteString(NODE_LIST_TEMP)
 			f.Close()
 		}
-	}
-
-	if len(nodeList.AllowedPeers) > MAX_ALLOWED_NODES {
-		nodeList.AllowedPeers =
-			nodeList.AllowedPeers[:MAX_ALLOWED_NODES]
 	}
 	if len(nodeList.DisallowedPeers) > MAX_DISALLOWED_NODES {
 		nodeList.DisallowedPeers =
@@ -157,8 +157,20 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 		selector.blackList.AddString(peer)
 	}
 
-	for _, p := range nodeList.AllowedPeers {
-		selector.listPeers.Store(p, NodeInfo{})
+	count := 0
+	for key, addrStr := range nodeList.AllowedPeers {
+		if count >= MAX_ALLOWED_NODES {
+			break
+		}
+		addr, err := multiaddr.NewMultiaddr(addrStr)
+		if err != nil {
+			continue
+		}
+		selector.listPeers.Store(key, NodeInfo{
+			AddrInfo: peer.AddrInfo{
+				Addrs: []multiaddr.Multiaddr{addr},
+			},
+		})
 		selector.peerNum.Add(1)
 	}
 
@@ -355,7 +367,9 @@ func GetConnectTTL(addrs []multiaddr.Multiaddr, timeout time.Duration) time.Dura
 	var minTTL time.Duration = timeout
 	for _, addr := range addrs {
 		ip := strings.Split(addr.String(), "/")[2]
-		if ok, err := utils.IsIntranetIpv4(ip); err != nil || ok {
+		// do not filter specified intranet ip
+		if ok, err := utils.IsIntranetIpv4(ip); len(addrs) > 1 &&
+			(err != nil || ok) {
 			continue
 		}
 		ttl, err := utils.PingNode(ip, timeout)
