@@ -15,6 +15,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -167,14 +168,16 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 			continue
 		}
 		ttl := GetConnectTTL([]multiaddr.Multiaddr{addr}, DEFAULT_TIMEOUT)
-		selector.listPeers.Store(key, NodeInfo{
+		info := NodeInfo{
 			AddrInfo: peer.AddrInfo{
 				Addrs: []multiaddr.Multiaddr{addr},
 			},
 			FlushTime: time.Now(),
 			Available: ttl > 0 && ttl <= time.Duration(maxTTL),
 			TTL:       ttl,
-		})
+		}
+		selector.listPeers.Store(key, info)
+		log.Println("add peer", key, ttl, info.Available)
 		selector.peerNum.Add(1)
 		count++
 	}
