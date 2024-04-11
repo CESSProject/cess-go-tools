@@ -170,6 +170,7 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 		ttl := GetConnectTTL([]multiaddr.Multiaddr{addr}, DEFAULT_TIMEOUT)
 		info := NodeInfo{
 			AddrInfo: peer.AddrInfo{
+				ID:    peer.ID(key),
 				Addrs: []multiaddr.Multiaddr{addr},
 			},
 			FlushTime: time.Now(),
