@@ -40,10 +40,10 @@ const (
 	MAX_FAILED_CONN      = 3
 	NODE_LIST_TEMP       = `{
 		"allowed_peers":{
-			"12D3KooWS3MWZZmRuejE2t2oJKQ9eNHxfnqw6EVxRRtYV3XPQkHy":"/ip4/127.0.0.1/tcp/4001",
+			"12D3KooWS3MWZZmRuejE2t2oJKQ9eNHxfnqw6EVxRRtYV3XPQkHy":"/ip4/127.0.0.1/tcp/4001"
 		},
 		"disallowed_peers":[
-			"12D3KooWS3MWZZmRuejE2t2oJKQ9eNHxfnqw6EVxRRtYV3XPQkHy",
+			"12D3KooWS3MWZZmRuejE2t2oJKQ9eNHxfnqw6EVxRRtYV3XPQkHy"
 		]
 	}`
 )
