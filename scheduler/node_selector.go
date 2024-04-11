@@ -25,6 +25,7 @@ import (
 	"github.com/CESSProject/cess-go-tools/utils"
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/mr-tron/base58/base58"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/pkg/errors"
 )
@@ -54,7 +55,7 @@ type Selector interface {
 	Feedback(id string, isWork bool)
 	FlushPeerNodes(pingTimeout time.Duration, peers ...peer.AddrInfo)
 	GetPeersNumber() int
-	//FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer)
+	FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer)
 }
 
 type Iterator interface {
@@ -169,9 +170,13 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 			continue
 		}
 		ttl := GetConnectTTL([]multiaddr.Multiaddr{addr}, DEFAULT_TIMEOUT)
+		bk, err := base58.Decode(key)
+		if err != nil {
+			continue
+		}
 		info := NodeInfo{
 			AddrInfo: peer.AddrInfo{
-				ID:    peer.ID(key),
+				ID:    peer.ID(bk),
 				Addrs: []multiaddr.Multiaddr{addr},
 			},
 			FlushTime: time.Now(),
@@ -179,7 +184,6 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 			TTL:       ttl,
 		}
 		selector.listPeers.Store(key, info)
-		log.Println("add peer", key, ttl, info.Available, addr.String())
 		selector.peerNum.Add(1)
 		count++
 	}
@@ -230,7 +234,6 @@ func (c *NodeChan) insertNode(info NodeInfo, maxNum int) {
 	c.queue[i+1] = info
 }
 
-// Deprecated: This refresh method is invalid in the new SDK version
 func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer) {
 	s.listPeers.Range(func(key, value any) bool {
 		k := key.(string)
@@ -238,10 +241,15 @@ func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discovere
 		if v.Available && time.Since(v.FlushTime) < time.Hour {
 			return true
 		}
-		addr, err := discoverer.FindPeer(context.Background(), peer.ID(k))
+		bk, err := base58.Decode(k)
 		if err != nil {
 			return true
 		}
+		addr, err := discoverer.FindPeer(context.Background(), peer.ID(bk))
+		if err != nil {
+			return true
+		}
+		log.Println("find peer", addr.ID.String())
 		v.AddrInfo = addr
 		v.FlushTime = time.Now()
 		v.TTL = GetConnectTTL(addr.Addrs, pingTimeout)

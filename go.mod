@@ -6,6 +6,7 @@ require (
 	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/go-ping/ping v1.1.0
 	github.com/libp2p/go-libp2p v0.32.2
+	github.com/mr-tron/base58 v1.2.0
 	github.com/muesli/cache2go v0.0.0-20221011235721-518229cd8021
 	github.com/multiformats/go-multiaddr v0.12.3
 	github.com/pixelbender/go-traceroute v0.0.0-20190414152342-e631ab553a80
@@ -22,7 +23,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
-	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/multiformats/go-base32 v0.1.0 // indirect
 	github.com/multiformats/go-base36 v0.2.0 // indirect
 	github.com/multiformats/go-multibase v0.2.0 // indirect
