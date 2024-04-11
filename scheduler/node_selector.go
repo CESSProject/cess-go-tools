@@ -166,12 +166,21 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 		if err != nil {
 			continue
 		}
+		ttl := GetConnectTTL([]multiaddr.Multiaddr{addr}, DEFAULT_TIMEOUT)
+		available := false
+		if ttl > 0 && ttl < time.Duration(maxTTL) {
+			available = true
+		}
 		selector.listPeers.Store(key, NodeInfo{
 			AddrInfo: peer.AddrInfo{
 				Addrs: []multiaddr.Multiaddr{addr},
 			},
+			FlushTime: time.Now(),
+			Available: available,
+			TTL:       ttl,
 		})
 		selector.peerNum.Add(1)
+		count++
 	}
 
 	switch strategy {
@@ -328,16 +337,24 @@ func (s *NodeSelector) reflashPeer(id string) {
 	if s.blackList.TestString(id) {
 		return
 	}
+	var (
+		info  NodeInfo
+		point *sync.Map
+	)
 	if v, ok := s.listPeers.Load(id); ok {
-		info := v.(NodeInfo)
-		info.NePoints = 0
-		s.activePeers.Store(id, info)
-		return
+		info = v.(NodeInfo)
+		point = s.listPeers
+	} else if v, ok := s.activePeers.Load(id); ok {
+		info = v.(NodeInfo)
+		point = s.activePeers
 	}
-	if v, ok := s.activePeers.Load(id); ok {
-		info := v.(NodeInfo)
+	if point != nil {
 		info.NePoints = 0
-		s.activePeers.Store(id, info)
+		if time.Since(info.FlushTime) > time.Hour {
+			info.TTL = GetConnectTTL(info.AddrInfo.Addrs, DEFAULT_TIMEOUT)
+			info.FlushTime = time.Now()
+		}
+		point.Store(id, info)
 	}
 }
 
@@ -348,13 +365,17 @@ func (s *NodeSelector) removePeer(id string) {
 	if v, ok := s.listPeers.Load(id); ok {
 		info := v.(NodeInfo)
 		info.NePoints++
-		s.activePeers.Store(id, info)
+		info.FlushTime = time.Now()
+		info.TTL = GetConnectTTL(info.AddrInfo.Addrs, DEFAULT_TIMEOUT)
+		s.listPeers.Store(id, info)
 		return
 	}
 	if v, ok := s.activePeers.Load(id); ok {
 		info := v.(NodeInfo)
 		info.NePoints++
 		if info.NePoints < MAX_FAILED_CONN {
+			info.FlushTime = time.Now()
+			info.TTL = GetConnectTTL(info.AddrInfo.Addrs, DEFAULT_TIMEOUT)
 			s.activePeers.Store(id, info)
 		}
 		s.activePeers.Delete(id)
