@@ -40,10 +40,10 @@ const (
 	MAX_FAILED_CONN      = 3
 	NODE_LIST_TEMP       = `{
 		"allowed_peers":{
-			"peer_id":"/ip4/1.2.3.4/tcp/80",
+			"12D3KooWS3MWZZmRuejE2t2oJKQ9eNHxfnqw6EVxRRtYV3XPQkHy":"/ip4/127.0.0.1/tcp/4001",
 		},
 		"disallowed_peers":[
-			"peer_id",
+			"12D3KooWS3MWZZmRuejE2t2oJKQ9eNHxfnqw6EVxRRtYV3XPQkHy",
 		]
 	}`
 )
@@ -159,7 +159,7 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 
 	count := 0
 	for key, addrStr := range nodeList.AllowedPeers {
-		if count >= MAX_ALLOWED_NODES {
+		if count > MAX_ALLOWED_NODES {
 			break
 		}
 		addr, err := multiaddr.NewMultiaddr(addrStr)
