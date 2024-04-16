@@ -319,16 +319,33 @@ func (s *NodeSelector) NewPeersIterator(minNum int) (Iterator, error) {
 	nodeCh := &NodeMap{
 		nodes: make(map[string]peer.AddrInfo),
 	}
+	aux := make([][]string, MAX_FAILED_CONN)
+	for i := 0; i < MAX_FAILED_CONN; i++ {
+		aux[i] = make([]string, 0)
+	}
 	handle := func(key, value any) bool {
+		k := key.(string)
 		v := value.(NodeInfo)
 		if !v.Available || v.NePoints >= MAX_FAILED_CONN {
 			return true
 		}
-		if nodeCh.count >= maxNum {
+		aux[v.NePoints] = append(aux[v.NePoints], k)
+		if nodeCh.count < maxNum {
+			nodeCh.nodes[k] = v.AddrInfo
+			nodeCh.count++
 			return true
 		}
-		nodeCh.nodes[v.AddrInfo.ID.String()] = v.AddrInfo
-		nodeCh.count++
+		for i := MAX_FAILED_CONN - 1; i >= 0; i-- {
+			if v.NePoints >= i {
+				break
+			}
+			if j := len(aux[i]) - 1; j >= 0 {
+				nodeCh.nodes[k] = v.AddrInfo
+				delete(nodeCh.nodes, aux[i][j])
+				aux[i] = aux[i][:len(aux[i])-1]
+				break
+			}
+		}
 		return true
 	}
 	s.listPeers.Range(handle)
