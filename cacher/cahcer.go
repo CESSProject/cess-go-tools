@@ -119,23 +119,30 @@ func (c *Cacher) MoveFileToCache(fname, fpath string) error {
 
 	c.lock.Lock()
 	defer c.lock.Unlock()
+	//add record and reomve expired records
+	c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: size})
+
 	free, err := utils.GetDirFreeSpace(cpath)
 	if err != nil {
 		return errors.Wrap(err, "move file to cache error")
 	}
 	if c.usedSpace+size > c.cacheSpace || int64(free) < size {
 		if !c.cacheSwapout(size) {
+			c.cacher.Delete(fname)
 			return errors.Wrap(errors.New("not enough cache space"), "move file to cache error")
 		}
 	}
 
 	_, err = io.Copy(output, input)
 	if err != nil {
+		c.cacher.Delete(fname)
 		return errors.Wrap(err, "move file to cache error")
 	}
-	os.Remove(fpath)
-	c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: size})
 	c.usedSpace += size
+	err = os.Remove(fpath)
+	if err != nil {
+		return errors.Wrap(err, "move file to cache error")
+	}
 	return nil
 }
 
