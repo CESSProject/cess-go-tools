@@ -38,6 +38,7 @@ const (
 	DEFAULT_MAX_TTL      = time.Millisecond * 500
 	DEFAULT_TIMEOUT      = 5 * time.Second
 	DEFAULT_FLUSH_TIME   = time.Hour * 4
+	PEER_NODES_GAP       = time.Microsecond * 25
 	MAX_FAILED_CONN      = 3
 	NODE_LIST_TEMP       = `{
 		"allowed_peers":{
@@ -86,10 +87,9 @@ type NodeInfo struct {
 	FlushTime time.Time
 }
 
-type NodeChan struct {
-	queue []NodeInfo
+type NodeMap struct {
+	nodes map[string]peer.AddrInfo
 	count int
-	index int
 }
 
 type NodeSelector struct {
@@ -98,6 +98,7 @@ type NodeSelector struct {
 	activePeers *sync.Map
 	config      SelectorConfig
 	peerNum     *atomic.Int32
+	lastOne     *atomic.Value
 }
 
 func NewNodeSelectorWithConfig(config SelectorConfig) (Selector, error) {
@@ -152,7 +153,9 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 	}
 	selector.blackList = bloom.NewWithEstimates(100000, 0.01)
 	selector.listPeers = &sync.Map{}
+	selector.lastOne = &atomic.Value{}
 	selector.peerNum = &atomic.Int32{}
+	selector.lastOne.Store(NodeInfo{})
 
 	for _, peer := range nodeList.DisallowedPeers {
 		selector.blackList.AddString(peer)
@@ -204,34 +207,16 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 	return selector, nil
 }
 
-func (c *NodeChan) GetPeer() (peer.AddrInfo, bool) {
-	if c.index >= c.count {
-		return peer.AddrInfo{}, false
-	}
-	c.index++
-	return c.queue[c.index-1].AddrInfo, true
-}
-
-func (c *NodeChan) insertNode(info NodeInfo, maxNum int) {
-	var i int
-	for i = c.count - 1; i >= c.index; i-- {
-		ttl := c.queue[i].TTL - info.TTL
-		if ttl > time.Microsecond*5 ||
-			(ttl >= 0 && info.NePoints < c.queue[i].NePoints) {
-			continue
-		}
+func (c *NodeMap) GetPeer() (peer.AddrInfo, bool) {
+	var addr peer.AddrInfo
+	var ok bool
+	for k, v := range c.nodes {
+		addr = v
+		ok = true
+		delete(c.nodes, k)
 		break
 	}
-	if c.count == maxNum {
-		if i >= c.count-1 {
-			return
-		}
-	} else {
-		c.count++
-		c.queue = append(c.queue, NodeInfo{})
-	}
-	copy(c.queue[i+1+1:], c.queue[i+1:c.count-1])
-	c.queue[i+1] = info
+	return addr, ok
 }
 
 func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer) {
@@ -265,14 +250,11 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, peers ...peer.A
 
 	for _, peer := range peers {
 
-		if s.peerNum.Load() >= int32(s.config.MaxNodeNum) {
-			return
-		}
-
 		key := peer.ID.String()
 		if s.blackList.TestString(key) {
 			continue
 		}
+		swap := false
 		info := NodeInfo{
 			AddrInfo:  peer,
 			FlushTime: time.Now(),
@@ -294,6 +276,9 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, peers ...peer.A
 			}
 			info.NePoints = v.NePoints
 		} else {
+			if s.peerNum.Load() >= int32(s.config.MaxNodeNum) {
+				swap = true
+			}
 			s.peerNum.Add(1)
 		}
 		info.TTL = GetConnectTTL(peer.Addrs, pingTimeout)
@@ -301,6 +286,24 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, peers ...peer.A
 			info.Available = true
 		}
 		point.Store(key, info)
+
+		lastOne := s.lastOne.Load().(NodeInfo)
+		if !swap {
+			if lastOne.TTL < info.TTL {
+				s.lastOne.Store(info)
+			}
+		} else if lastOne.TTL-info.TTL > PEER_NODES_GAP {
+			s.activePeers.Delete(string(lastOne.AddrInfo.ID))
+			var max time.Duration
+			s.activePeers.Range(func(key, value any) bool {
+				v := value.(NodeInfo)
+				if v.TTL > max {
+					s.lastOne.Store(v)
+					max = v.TTL
+				}
+				return true
+			})
+		}
 	}
 }
 
@@ -309,18 +312,23 @@ func (s *NodeSelector) GetPeersNumber() int {
 }
 
 func (s *NodeSelector) NewPeersIterator(minNum int) (Iterator, error) {
-	if minNum > s.config.MaxNodeNum {
+	if minNum > s.config.MaxNodeNum || minNum > int(s.peerNum.Load()) {
 		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
 	}
-	nodeCh := &NodeChan{
-		queue: make([]NodeInfo, 0, s.config.MaxNodeNum),
+	maxNum := 3 * minNum //Triple node redundancy
+	nodeCh := &NodeMap{
+		nodes: make(map[string]peer.AddrInfo),
 	}
 	handle := func(key, value any) bool {
 		v := value.(NodeInfo)
-		if !v.Available {
+		if !v.Available || v.NePoints >= MAX_FAILED_CONN {
 			return true
 		}
-		nodeCh.insertNode(v, s.config.MaxNodeNum)
+		if nodeCh.count >= maxNum {
+			return true
+		}
+		nodeCh.nodes[v.AddrInfo.ID.String()] = v.AddrInfo
+		nodeCh.count++
 		return true
 	}
 	s.listPeers.Range(handle)
