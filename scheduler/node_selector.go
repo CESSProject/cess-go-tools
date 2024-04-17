@@ -55,7 +55,9 @@ type Selector interface {
 	Feedback(id string, isWork bool)
 	FlushPeerNodes(pingTimeout time.Duration, peers ...peer.AddrInfo)
 	GetPeersNumber() int
+	ClearBlackList()
 	FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer)
+	NewPeersIteratorWithConditions(minNum, maxNum int, conds ...func(key string, value NodeInfo) bool) (Iterator, error)
 }
 
 type Iterator interface {
@@ -311,6 +313,42 @@ func (s *NodeSelector) GetPeersNumber() int {
 	return int(s.peerNum.Load())
 }
 
+func (s *NodeSelector) NewPeersIteratorWithConditions(minNum, maxNum int, conds ...func(key string, value NodeInfo) bool) (Iterator, error) {
+	if minNum > s.config.MaxNodeNum || minNum > int(s.peerNum.Load()) {
+		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
+	}
+	if maxNum < minNum {
+		maxNum = minNum
+	}
+	nodeCh := &NodeMap{
+		nodes: make(map[string]peer.AddrInfo),
+	}
+	handle := func(key, value any) bool {
+		k := key.(string)
+		v := value.(NodeInfo)
+		ok := true
+		for _, condFunc := range conds {
+			ok = ok && condFunc(k, v)
+			if !ok {
+				break
+			}
+		}
+		if ok {
+			nodeCh.nodes[k] = v.AddrInfo
+		}
+		return true
+	}
+	s.listPeers.Range(handle)
+
+	if s.config.Strategy != FIXED_STRATEGY {
+		s.activePeers.Range(handle)
+	}
+	if nodeCh.count < minNum {
+		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
+	}
+	return nodeCh, nil
+}
+
 func (s *NodeSelector) NewPeersIterator(minNum int) (Iterator, error) {
 	if minNum > s.config.MaxNodeNum || minNum > int(s.peerNum.Load()) {
 		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
@@ -357,6 +395,16 @@ func (s *NodeSelector) NewPeersIterator(minNum int) (Iterator, error) {
 		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
 	}
 	return nodeCh, nil
+}
+
+func (s *NodeSelector) ClearBlackList() {
+	s.blackList.ClearAll()
+	s.listPeers.Range(func(key, value any) bool {
+		v := value.(NodeInfo)
+		v.NePoints = 0
+		s.listPeers.Store(key, v)
+		return true
+	})
 }
 
 func (s *NodeSelector) Feedback(id string, isWrok bool) {

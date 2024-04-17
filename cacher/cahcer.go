@@ -29,6 +29,15 @@ type FileCache interface {
 	FlushAndCleanCache(wantSize int64) bool
 }
 
+type CacheItem interface {
+	Data() interface{}
+	Key() interface{}
+	AccessCount() int64
+	CreatedOn() time.Time
+	AccessedOn() time.Time
+	LifeSpan() time.Duration
+}
+
 type Cacher struct {
 	lock       *sync.RWMutex
 	cacher     *cache2go.CacheTable
@@ -38,7 +47,7 @@ type Cacher struct {
 	CacheDir   string
 }
 
-type CacheItem struct {
+type CacheRecord struct {
 	Cpath string
 	Csize int64
 }
@@ -58,7 +67,7 @@ func NewCacher(exp time.Duration, maxSpace int64, cacheDir string) FileCache {
 		cacheSpace: maxSpace,
 	}
 	cacher.cacher.SetAboutToDeleteItemCallback(func(ci *cache2go.CacheItem) {
-		item, ok := ci.Data().(CacheItem)
+		item, ok := ci.Data().(CacheRecord)
 		if !ok {
 			return
 		}
@@ -79,7 +88,7 @@ func NewCacher(exp time.Duration, maxSpace int64, cacheDir string) FileCache {
 		}
 		cacher.cacher.Add(
 			d.Name(), cacher.exp,
-			CacheItem{Cpath: path, Csize: info.Size()},
+			CacheRecord{Cpath: path, Csize: info.Size()},
 		)
 		return nil
 	})
@@ -99,7 +108,7 @@ func (c *Cacher) MoveFileToCache(fname, fpath string) error {
 	size := f.Size()
 	if err == nil {
 		if f2.Size() == size {
-			c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: f2.Size()})
+			c.cacher.Add(fname, c.exp, CacheRecord{Cpath: cpath, Csize: f2.Size()})
 			return nil
 		}
 		size -= f2.Size()
@@ -120,7 +129,7 @@ func (c *Cacher) MoveFileToCache(fname, fpath string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	//add record and reomve expired records
-	c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: size})
+	c.cacher.Add(fname, c.exp, CacheRecord{Cpath: cpath, Csize: size})
 
 	free, err := utils.GetDirFreeSpace(cpath)
 	if err != nil {
@@ -152,7 +161,7 @@ func (c *Cacher) SaveDataToCache(fname string, data []byte) error {
 	size := f.Size()
 	if err == nil {
 		if size == int64(len(data)) {
-			c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: size})
+			c.cacher.Add(fname, c.exp, CacheRecord{Cpath: cpath, Csize: size})
 			return nil
 		}
 		size = int64(len(data)) - size
@@ -177,7 +186,7 @@ func (c *Cacher) SaveDataToCache(fname string, data []byte) error {
 	if err != nil {
 		return errors.Wrap(err, "save file to cache error")
 	}
-	c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: size})
+	c.cacher.Add(fname, c.exp, CacheRecord{Cpath: cpath, Csize: size})
 	c.usedSpace += size
 	return nil
 }
@@ -193,8 +202,12 @@ func (c *Cacher) AddCacheRecord(fname, cpath string) error {
 	if f.Size() <= 0 {
 		return errors.Wrap(errors.New("invalid file"), "add cache record error")
 	}
-	c.cacher.Add(fname, c.exp, CacheItem{Cpath: cpath, Csize: f.Size()})
+	c.cacher.Add(fname, c.exp, CacheRecord{Cpath: cpath, Csize: f.Size()})
 	return nil
+}
+
+func (c *Cacher) AddEmptyCacheRecord(fname string) {
+	c.cacher.Add(fname, c.exp, CacheRecord{})
 }
 
 func (c *Cacher) GetCacheRecord(fname string) (string, error) {
@@ -202,11 +215,19 @@ func (c *Cacher) GetCacheRecord(fname string) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "get cache record error")
 	}
-	item, ok := value.Data().(CacheItem)
+	item, ok := value.Data().(CacheRecord)
 	if !ok {
 		return "", errors.Wrap(err, "get cache record error")
 	}
 	return item.Cpath, nil
+}
+
+func (c *Cacher) GetCacheItem(fname string) (CacheItem, error) {
+	value, err := c.cacher.Value(fname)
+	if err != nil {
+		return nil, errors.Wrap(err, "get cache record error")
+	}
+	return value, nil
 }
 
 func (c *Cacher) RemoveCacheRecord(fname string) error {
@@ -218,7 +239,7 @@ func (c *Cacher) RemoveCacheRecord(fname string) error {
 		return errors.Wrap(err, "remove cache record error")
 	}
 
-	item, ok := value.Data().(CacheItem)
+	item, ok := value.Data().(CacheRecord)
 	if !ok {
 		return errors.Wrap(errors.New("bad cache record"), "remove cache record error")
 	}
@@ -263,7 +284,7 @@ func (c *Cacher) cacheSwapout(size int64) bool {
 		return false
 	}
 	c.cacher.Foreach(func(key interface{}, item *cache2go.CacheItem) {
-		v, ok := item.Data().(CacheItem)
+		v, ok := item.Data().(CacheRecord)
 		if !ok {
 			return
 		}
@@ -271,7 +292,7 @@ func (c *Cacher) cacheSwapout(size int64) bool {
 		if dqSize < delSize {
 			dqSize += v.Csize
 		} else {
-			sv := delQueue[len(delQueue)-1].Data().(CacheItem)
+			sv := delQueue[len(delQueue)-1].Data().(CacheRecord)
 			if dqSize-sv.Csize >= delSize {
 				delQueue = delQueue[:len(delQueue)-1]
 				dqSize -= sv.Csize
@@ -288,7 +309,7 @@ func (c *Cacher) cacheSwapout(size int64) bool {
 		if err != nil {
 			return false
 		}
-		v, ok := value.Data().(CacheItem)
+		v, ok := value.Data().(CacheRecord)
 		if !ok {
 			return false
 		}
