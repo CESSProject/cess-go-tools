@@ -29,6 +29,8 @@ type FileCache interface {
 	FlushAndCleanCache(wantSize int64) bool
 }
 
+type ForEachItems func(key interface{}, item *cache2go.CacheItem)
+
 type CacheItem interface {
 	Data() interface{}
 	Key() interface{}
@@ -114,12 +116,19 @@ func (c *Cacher) MoveFileToCache(fname, fpath string) error {
 		size -= f2.Size()
 	}
 
+	dir := filepath.Dir(cpath)
+	if _, err := os.Stat(dir); err != nil {
+		err = os.MkdirAll(dir, 0755)
+		if err != nil {
+			return errors.Wrap(err, "move file to cache error")
+		}
+	}
+
 	input, err := os.Open(fpath)
 	if err != nil {
 		return errors.Wrap(err, "move file to cache error")
 	}
 	defer input.Close()
-
 	output, err := os.Create(cpath)
 	if err != nil {
 		return errors.Wrap(err, "move file to cache error")
@@ -165,6 +174,14 @@ func (c *Cacher) SaveDataToCache(fname string, data []byte) error {
 			return nil
 		}
 		size = int64(len(data)) - size
+	}
+
+	dir := filepath.Dir(cpath)
+	if _, err := os.Stat(dir); err != nil {
+		err = os.MkdirAll(dir, 0755)
+		if err != nil {
+			return errors.Wrap(err, "move file to cache error")
+		}
 	}
 
 	c.lock.Lock()
@@ -228,6 +245,10 @@ func (c *Cacher) GetCacheItem(fname string) (CacheItem, error) {
 		return nil, errors.Wrap(err, "get cache record error")
 	}
 	return value, nil
+}
+
+func (c *Cacher) TraverseCache(f ForEachItems) {
+	c.cacher.Foreach(f)
 }
 
 func (c *Cacher) RemoveCacheRecord(fname string) error {
