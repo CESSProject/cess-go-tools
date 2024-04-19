@@ -330,12 +330,10 @@ func (s *NodeSelector) NewPeersIteratorWithConditions(minNum, maxNum int, conds 
 		for _, condFunc := range conds {
 			ok = ok && condFunc(k, v)
 			if !ok {
-				break
+				return true
 			}
 		}
-		if ok {
-			nodeCh.nodes[k] = v.AddrInfo
-		}
+		nodeCh.nodes[k] = v.AddrInfo
 		return true
 	}
 	s.listPeers.Range(handle)
