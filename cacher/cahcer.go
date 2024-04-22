@@ -26,6 +26,9 @@ type FileCache interface {
 	AddCacheRecord(fname, fpath string) error
 	GetCacheRecord(fname string) (string, error)
 	RemoveCacheRecord(fname string) error
+	AddEmptyCacheRecord(fname string)
+	GetCacheItem(fname string) (CacheItem, error)
+	TraverseCache(f ForEachItems)
 	FlushAndCleanCache(wantSize int64) bool
 }
 
