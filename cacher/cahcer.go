@@ -32,7 +32,7 @@ type FileCache interface {
 	FlushAndCleanCache(wantSize int64) bool
 }
 
-type ForEachItems func(key interface{}, item *cache2go.CacheItem)
+type ForEachItems func(key interface{}, item CacheItem)
 
 type CacheItem interface {
 	Data() interface{}
@@ -251,7 +251,11 @@ func (c *Cacher) GetCacheItem(fname string) (CacheItem, error) {
 }
 
 func (c *Cacher) TraverseCache(f ForEachItems) {
-	c.cacher.Foreach(f)
+	c.cacher.Foreach(
+		func(key interface{}, item *cache2go.CacheItem) {
+			f(key, item)
+		},
+	)
 }
 
 func (c *Cacher) RemoveCacheRecord(fname string) error {
