@@ -2,7 +2,6 @@ package cacher
 
 import (
 	"io"
-	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -33,6 +32,7 @@ type FileCache interface {
 }
 
 type ForEachItems func(key interface{}, item CacheItem)
+type ForItem func(item CacheItem)
 
 type CacheItem interface {
 	Data() interface{}
@@ -78,26 +78,19 @@ func NewCacher(exp time.Duration, maxSpace int64, cacheDir string) FileCache {
 		}
 		cacher.removeFile(item.Cpath)
 	})
-
-	// restore cache record
-	filepath.WalkDir(cacheDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if info.Size() <= 0 || info.IsDir() {
-			return nil
-		}
-		cacher.cacher.Add(
-			d.Name(), cacher.exp,
-			CacheRecord{Cpath: path, Csize: info.Size()},
-		)
-		return nil
-	})
 	return cacher
+}
+
+func (c *Cacher) AddCallbackOfAddItem(f ForItem) {
+	c.cacher.AddAddedItemCallback(
+		func(ci *cache2go.CacheItem) { f(ci) },
+	)
+}
+
+func (c *Cacher) AddCallbackOfDeleteItem(f ForItem) {
+	c.cacher.AddAboutToDeleteItemCallback(
+		func(ci *cache2go.CacheItem) { f(ci) },
+	)
 }
 
 func (c *Cacher) MoveFileToCache(fname, fpath string) error {
@@ -267,12 +260,11 @@ func (c *Cacher) RemoveCacheRecord(fname string) error {
 		return errors.Wrap(err, "remove cache record error")
 	}
 
-	item, ok := value.Data().(CacheRecord)
+	_, ok := value.Data().(CacheRecord)
 	if !ok {
 		return errors.Wrap(errors.New("bad cache record"), "remove cache record error")
 	}
-	err = c.removeFile(item.Cpath)
-	return errors.Wrap(err, "remove cache record error")
+	return nil
 }
 
 func (c *Cacher) removeFile(fpath string) error {
