@@ -31,6 +31,7 @@ type FileCache interface {
 	FlushAndCleanCache(wantSize int64) bool
 	AddCallbackOfAddItem(f ForItem)
 	AddCallbackOfDeleteItem(f ForItem)
+	GetLoadRatio() float64
 }
 
 type ForEachItems func(key interface{}, item CacheItem)
@@ -93,6 +94,18 @@ func (c *Cacher) AddCallbackOfDeleteItem(f ForItem) {
 	c.cacher.AddAboutToDeleteItemCallback(
 		func(ci *cache2go.CacheItem) { f(ci) },
 	)
+}
+
+func (c *Cacher) GetLoadRatio() float64 {
+	used, total := 0.0, 0.0
+	c.lock.RLock()
+	used = float64(c.usedSpace)
+	total = float64(c.cacheSpace)
+	c.lock.RUnlock()
+	if total <= 0 {
+		return 0
+	}
+	return used / total
 }
 
 func (c *Cacher) MoveFileToCache(fname, fpath string) error {
