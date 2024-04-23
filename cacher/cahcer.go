@@ -29,6 +29,8 @@ type FileCache interface {
 	GetCacheItem(fname string) (CacheItem, error)
 	TraverseCache(f ForEachItems)
 	FlushAndCleanCache(wantSize int64) bool
+	AddCallbackOfAddItem(f ForItem)
+	AddCallbackOfDeleteItem(f ForItem)
 }
 
 type ForEachItems func(key interface{}, item CacheItem)
