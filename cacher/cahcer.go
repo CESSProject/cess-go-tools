@@ -2,6 +2,7 @@ package cacher
 
 import (
 	"io"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -79,7 +80,8 @@ func NewCacher(exp time.Duration, maxSpace int64, cacheDir string) FileCache {
 		if !ok {
 			return
 		}
-		cacher.removeFile(item.Cpath)
+		log.Println("remove file", item.Cpath, item.Csize)
+		log.Println("is error", cacher.removeFile(item.Cpath))
 	})
 	return cacher
 }
