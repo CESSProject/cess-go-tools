@@ -30,6 +30,7 @@ const (
 	CANS_PROTO_FLAG_LEN     = 4
 	METADATA_LEN_BYTES_LEN  = 4 // max bytes number <= 2^(4*8)
 	DEFAULT_CAN_SIZE        = 32 * 1024 * 1024
+	CIPHER_CAN_SIZE         = 32*1024*1024 - 16
 	CAN_FILE_META_BYTES_LEN = 48
 	PROTO_VERSION           = "v0.1"
 )
@@ -74,7 +75,7 @@ type Archiver interface {
 	Close() error
 }
 
-func ArchiveCanFile(filesDir, filename, archiveFormat string, fileBeSplit bool, nameConv func(string) string, ar Archiver) error {
+func ArchiveCanFile(filesDir, filename, archiveFormat string, encrypt, fileBeSplit bool, nameConv func(string) string, ar Archiver) error {
 	box := CanBox{
 		Metadata: BoxMetadata{
 			FileName:      filename,
@@ -133,16 +134,21 @@ func ArchiveCanFile(filesDir, filename, archiveFormat string, fileBeSplit bool, 
 		}
 	}
 
-	if err = FillingCans(&box, fileBeSplit); err != nil {
+	var canSize uint64 = DEFAULT_CAN_SIZE
+	if encrypt {
+		canSize = CIPHER_CAN_SIZE
+	}
+
+	if err = FillingCans(&box, fileBeSplit, canSize); err != nil {
 		return errors.Wrap(err, "archive can file error")
 	}
 
-	err = SealCans(&box, filesDir, filename)
+	err = SealCans(&box, filesDir, filename, canSize)
 
 	return errors.Wrap(err, "archive can file error")
 }
 
-func FillingCans(box *CanBox, fileBeSplit bool) error {
+func FillingCans(box *CanBox, fileBeSplit bool, canSize uint64) error {
 	var (
 		avgMetaSize int64   = 256 * 1024
 		sizeList    []int64 = box.CompressSize
@@ -170,7 +176,7 @@ func FillingCans(box *CanBox, fileBeSplit bool) error {
 		i := idx
 		for ; i >= 0; i-- {
 			idxRecord = i
-			if can.TotalArchivedSize+uint64(sizeList[i]+avgMetaSize) > DEFAULT_CAN_SIZE {
+			if can.TotalArchivedSize+uint64(sizeList[i]+avgMetaSize) > canSize {
 				canCopy := can
 				canUpdate(&canCopy, i)
 				jbyte, err := json.Marshal(canCopy)
@@ -180,7 +186,7 @@ func FillingCans(box *CanBox, fileBeSplit bool) error {
 				newMetaSize := CAN_FILE_META_BYTES_LEN + CANS_PROTO_FLAG_LEN +
 					METADATA_LEN_BYTES_LEN + uint64(len(jbyte))
 				avgMetaSize = (avgMetaSize + int64(newMetaSize)) / 2
-				if can.TotalArchivedSize+newMetaSize+uint64(sizeList[i]) >= DEFAULT_CAN_SIZE {
+				if can.TotalArchivedSize+newMetaSize+uint64(sizeList[i]) >= canSize {
 					if !fileBeSplit {
 						break
 					}
@@ -193,7 +199,7 @@ func FillingCans(box *CanBox, fileBeSplit bool) error {
 				if err != nil {
 					return err
 				}
-				size := DEFAULT_CAN_SIZE -
+				size := canSize -
 					(can.TotalArchivedSize - uint64(sizeList[i]) +
 						uint64(len(jbyte)) + CANS_PROTO_FLAG_LEN + METADATA_LEN_BYTES_LEN)
 				if size <= 0 {
@@ -243,16 +249,16 @@ func FillingCans(box *CanBox, fileBeSplit bool) error {
 	}
 	size0 := uint64(CANS_PROTO_FLAG_LEN+METADATA_LEN_BYTES_LEN*2) +
 		uint64(len(boxMetaBytes)+len(can0MetaBytes)) + box.Metadata.Cans[0].TotalArchivedSize
-	if size0 > DEFAULT_CAN_SIZE {
+	if size0 > canSize {
 		box.Metadata.Cans = append([]CanMetadata{{}}, box.Metadata.Cans...)
 		box.Metadata.CanNum++
 	}
 	return nil
 }
 
-func SealCans(box *CanBox, fdir, fname string) error {
+func SealCans(box *CanBox, fdir, fname string, canSize uint64) error {
 
-	buf := bytes.NewBuffer(make([]byte, 0, DEFAULT_CAN_SIZE))
+	buf := bytes.NewBuffer(make([]byte, 0, canSize))
 	boxMetaBytes, err := json.Marshal(box.Metadata)
 	if err != nil {
 		return err
@@ -314,15 +320,15 @@ func SealCans(box *CanBox, fdir, fname string) error {
 				return err
 			}
 		}
-		if buf.Len() < DEFAULT_CAN_SIZE {
-			buf.Write(make([]byte, DEFAULT_CAN_SIZE-buf.Len()))
+		if uint64(buf.Len()) < canSize {
+			buf.Write(make([]byte, canSize-uint64(buf.Len())))
 		}
 		n, err := buf.WriteTo(sealFile)
 		if err != nil {
 			return err
 		}
-		if n != DEFAULT_CAN_SIZE {
-			return fmt.Errorf("can file size doesn't match, expected %d, actual %d", DEFAULT_CAN_SIZE, n)
+		if uint64(n) != canSize {
+			return fmt.Errorf("can file size doesn't match, expected %d, actual %d", canSize, n)
 		}
 	}
 
@@ -335,11 +341,6 @@ func ParseCanMetadata(fbytes []byte, canID int) (CanMetadata, int, error) {
 		meta    CanMetadata
 		start   int
 	)
-	if len(fbytes) < DEFAULT_CAN_SIZE {
-		err := fmt.Errorf("bad can file size, expected %d, actual %d", DEFAULT_CAN_SIZE, len(fbytes))
-		return meta, 0, errors.Wrap(err, "parse can metadata error")
-	}
-
 	if string(fbytes[:CANS_PROTO_FLAG_LEN]) != CANS_PROTO_FLAG {
 		err := errors.New("this file does not support the cans-protocol")
 		return meta, 0, errors.Wrap(err, "parse can metadata error")
@@ -369,11 +370,6 @@ func ParseCanMetadata(fbytes []byte, canID int) (CanMetadata, int, error) {
 
 func ParseCanBoxMetadata(fbytes []byte) (BoxMetadata, error) {
 	var meta BoxMetadata
-
-	if len(fbytes) < DEFAULT_CAN_SIZE {
-		err := fmt.Errorf("bad can file size, expected %d, actual %d", DEFAULT_CAN_SIZE, len(fbytes))
-		return meta, errors.Wrap(err, "parse can box metadata error")
-	}
 
 	if string(fbytes[:CANS_PROTO_FLAG_LEN]) != CANS_PROTO_FLAG {
 		err := errors.New("this file does not support the cans-protocol")
@@ -460,10 +456,6 @@ func ExtractFileFromCan(src, destDir, target string, canID int, ar Archiver) (st
 	}
 	if targetFile == nil {
 		err := errors.New("target file not found.")
-		return "", errors.Wrap(err, "extract data from can error")
-	}
-	if start+int(targetFile.FileSize) > DEFAULT_CAN_SIZE {
-		err := errors.New("bad can file size, unable to fit the file size defined in the metadata")
 		return "", errors.Wrap(err, "extract data from can error")
 	}
 
