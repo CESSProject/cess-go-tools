@@ -144,7 +144,6 @@ func ArchiveCanFile(filesDir, filename, archiveFormat string, encrypt, fileBeSpl
 	}
 
 	err = SealCans(&box, filesDir, filename, canSize)
-
 	return errors.Wrap(err, "archive can file error")
 }
 
@@ -269,8 +268,9 @@ func SealCans(box *CanBox, fdir, fname string, canSize uint64) error {
 		return err
 	}
 	defer sealFile.Close()
-	counter := 0
+	counter := -1
 	sizeRecord := uint64(0)
+	nameRecord := ""
 	for i := 0; i < len(box.Metadata.Cans); i++ {
 
 		buf.Write([]byte(CANS_PROTO_FLAG))
@@ -287,8 +287,13 @@ func SealCans(box *CanBox, fdir, fname string, canSize uint64) error {
 			buf.Write(Uint32ToBytes(uint32(len(canMetaBytes))))
 			buf.Write(canMetaBytes)
 		}
-		for j, cfile := range box.Metadata.Cans[i].Files {
+		for _, cfile := range box.Metadata.Cans[i].Files {
 			if err = func() error {
+				if nameRecord != cfile.FileName {
+					counter++
+					sizeRecord = 0
+				}
+				nameRecord = cfile.FileName
 				f, err := os.Open(box.Fils[counter])
 				if err != nil {
 					return err
@@ -309,11 +314,6 @@ func SealCans(box *CanBox, fdir, fname string, canSize uint64) error {
 				}
 				if uint64(n) != cfile.FileSize {
 					return fmt.Errorf("write file %s error: the sub file size doesn't match", box.Fils[counter])
-				}
-				if !cfile.IsSplit ||
-					(j < len(box.Metadata.Cans[i].Files)-1 && !box.Metadata.Cans[i].Files[j+1].IsSplit) {
-					sizeRecord = 0
-					counter++
 				}
 				return nil
 			}(); err != nil {
