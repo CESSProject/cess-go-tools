@@ -1,6 +1,8 @@
 module github.com/CESSProject/cess-go-tools
 
-go 1.20
+go 1.21
+
+toolchain go1.22.4
 
 require (
 	github.com/bits-and-blooms/bloom/v3 v3.7.0
@@ -16,7 +18,9 @@ require (
 
 require (
 	github.com/dsnet/compress v0.0.1 // indirect
+	github.com/frankban/quicktest v1.14.6 // indirect
 	github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db // indirect
+	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/nwaples/rardecode v1.1.3 // indirect
 	github.com/pierrec/lz4 v2.6.1+incompatible // indirect
 	github.com/ulikunitz/xz v0.5.12 // indirect

@@ -179,9 +179,10 @@ func (c *Cacher) MoveFileToCache(fname, fpath string) error {
 
 func (c *Cacher) SaveDataToCache(fname string, data []byte) error {
 	cpath := path.Join(c.CacheDir, fname)
+	size := int64(len(data))
 	f, err := os.Stat(cpath)
-	size := f.Size()
 	if err == nil {
+		size = f.Size()
 		if size == int64(len(data)) {
 			c.cacher.Add(fname, c.exp, CacheRecord{Cpath: cpath, Csize: size})
 			return nil
