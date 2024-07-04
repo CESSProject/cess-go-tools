@@ -153,7 +153,7 @@ func (c *Cacher) MoveFileToCache(fname, fpath string) error {
 	//add record and reomve expired records
 	c.cacher.Add(fname, c.exp, CacheRecord{Cpath: cpath, Csize: size})
 
-	free, err := utils.GetDirFreeSpace(cpath)
+	free, err := utils.GetDirFreeSpace(dir)
 	if err != nil {
 		return errors.Wrap(err, "move file to cache error")
 	}
@@ -200,7 +200,7 @@ func (c *Cacher) SaveDataToCache(fname string, data []byte) error {
 
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	free, err := utils.GetDirFreeSpace(cpath)
+	free, err := utils.GetDirFreeSpace(dir)
 	if err != nil {
 		return errors.Wrap(err, "save file to cache error")
 	}

@@ -20,7 +20,10 @@ var reg = regexp.MustCompile(regstr)
 
 func GetDirFreeSpace(dir string) (uint64, error) {
 	sageStat, err := disk.Usage(dir)
-	return sageStat.Free, err
+	if err != nil {
+		return 0, nil
+	}
+	return sageStat.Free, nil
 }
 
 func FildIpv4(data []byte) (string, bool) {
