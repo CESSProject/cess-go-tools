@@ -430,20 +430,20 @@ func ParseData(src, destDir string, canID int, ar Archiver) error {
 	return nil
 }
 
-func ExtractFileFromCan(src, destDir, target string, canID int, ar Archiver) (string, error) {
+func ExtractFileFromCan(src, destDir, target string, canID int, ar Archiver) (string, CanMetadata, error) {
 	fbytes, err := os.ReadFile(src)
 	if err != nil {
-		return "", errors.Wrap(err, "extract data from can error")
+		return "", CanMetadata{}, errors.Wrap(err, "extract data from can error")
 	}
 	meta, start, err := ParseCanMetadata(fbytes, canID)
 	if err != nil {
-		return "", errors.Wrap(err, "extract data from can error")
+		return "", meta, errors.Wrap(err, "extract data from can error")
 	}
 
 	if ar == nil && meta.ArchiveFormat != "" {
 		ar, err = NewArchiver(meta.ArchiveFormat)
 		if err != nil {
-			return "", errors.Wrap(err, "extract data from can error")
+			return "", meta, errors.Wrap(err, "extract data from can error")
 		}
 	}
 	var targetFile *File
@@ -456,26 +456,26 @@ func ExtractFileFromCan(src, destDir, target string, canID int, ar Archiver) (st
 	}
 	if targetFile == nil {
 		err := errors.New("target file not found.")
-		return "", errors.Wrap(err, "extract data from can error")
+		return "", meta, errors.Wrap(err, "extract data from can error")
 	}
 
 	fpath := filepath.Join(destDir, targetFile.FileName)
 	err = os.WriteFile(fpath, fbytes[start:start+int(targetFile.FileSize)], 0755)
 	if err != nil {
-		return "", errors.Wrap(err, "extract data from can error")
+		return "", meta, errors.Wrap(err, "extract data from can error")
 	}
 	if ar != nil && !targetFile.IsSplit {
 		err = ar.Unarchive(fpath, destDir)
 		if err != nil {
-			return "", errors.Wrap(err, "extract data from can error")
+			return "", meta, errors.Wrap(err, "extract data from can error")
 		}
 		err = os.Remove(fpath)
 		if err != nil {
-			return "", errors.Wrap(err, "extract data from can error")
+			return "", meta, errors.Wrap(err, "extract data from can error")
 		}
 		fpath = strings.TrimSuffix(fpath, filepath.Ext(fpath))
 	}
-	return fpath, nil
+	return fpath, meta, nil
 }
 
 func PickUpSplitFile(srcs []string, destDir, target string, startCanID int, ar Archiver) (string, error) {
@@ -485,8 +485,9 @@ func PickUpSplitFile(srcs []string, destDir, target string, startCanID int, ar A
 		return "", errors.Wrap(err, "pick up split data from can error")
 	}
 	fname := ""
+	archiveFormat := ""
 	for i, src := range srcs {
-		fpath, err := ExtractFileFromCan(src, destDir, target, startCanID+i, nil)
+		fpath, canMeta, err := ExtractFileFromCan(src, destDir, target, startCanID+i, nil)
 		if err != nil {
 			f.Close()
 			return "", errors.Wrap(err, "pick up split data from can error")
@@ -508,13 +509,14 @@ func PickUpSplitFile(srcs []string, destDir, target string, startCanID int, ar A
 		}
 		os.Remove(fpath)
 		fname = fpath
+		archiveFormat = canMeta.ArchiveFormat
 	}
 	f.Close()
 	if err = os.Rename(targetPath, fname); err != nil {
 		return "", errors.Wrap(err, "pick up split data from can error")
 	}
 	if ar == nil {
-		ar, err = NewArchiver(strings.TrimPrefix(filepath.Ext(fname), "."))
+		ar, err = NewArchiver(archiveFormat)
 		if err != nil {
 			return fname, nil
 		}
@@ -522,9 +524,11 @@ func PickUpSplitFile(srcs []string, destDir, target string, startCanID int, ar A
 	if ar != nil {
 		err = ar.Unarchive(fname, destDir)
 		if err != nil {
-			return "", errors.Wrap(err, "pick up split data from can error")
+			if !strings.Contains(err.Error(), "file already exists") {
+				return "", errors.Wrap(err, "pick up split data from can error")
+			}
 		}
-		fname = strings.TrimSuffix(fname, filepath.Ext(fname))
+		fname = strings.TrimSuffix(fname, "."+archiveFormat)
 	}
 	return fname, nil
 }
