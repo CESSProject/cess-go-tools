@@ -209,6 +209,7 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 	return selector, nil
 }
 
+// GetPeer gets a node from the iterator and removes it from the iterator
 func (c *NodeMap) GetPeer() (peer.AddrInfo, bool) {
 	var addr peer.AddrInfo
 	var ok bool
@@ -221,6 +222,7 @@ func (c *NodeMap) GetPeer() (peer.AddrInfo, bool) {
 	return addr, ok
 }
 
+// FlushlistedPeerNodes is used to update the status information of the node specified by the configuration file in the node selector
 func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer) {
 	s.listPeers.Range(func(key, value any) bool {
 		k := key.(string)
@@ -309,10 +311,12 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, peers ...peer.A
 	}
 }
 
+// GetPeersNumber gets the number of all valid nodes in the node selector
 func (s *NodeSelector) GetPeersNumber() int {
 	return int(s.peerNum.Load())
 }
 
+// NewPeersIteratorWithConditions is used to create a node iterator containing custom selection logic
 func (s *NodeSelector) NewPeersIteratorWithConditions(minNum, maxNum int, conds ...func(key string, value NodeInfo) bool) (Iterator, error) {
 	if minNum > s.config.MaxNodeNum || minNum > int(s.peerNum.Load()) {
 		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
@@ -347,11 +351,58 @@ func (s *NodeSelector) NewPeersIteratorWithConditions(minNum, maxNum int, conds 
 	return nodeCh, nil
 }
 
+// NewPeersIterator creates an iterator that selects nodes based on the strategy.
+// These nodes may come from the list specified in the configuration file or other nodes discovered dynamically.
 func (s *NodeSelector) NewPeersIterator(minNum int) (Iterator, error) {
 	if minNum > s.config.MaxNodeNum || minNum > int(s.peerNum.Load()) {
 		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
 	}
 	maxNum := 3 * minNum //Triple node redundancy
+	handle, nodeCh := s.newSelectFunc(maxNum)
+	s.listPeers.Range(handle)
+
+	if s.config.Strategy != FIXED_STRATEGY {
+		s.activePeers.Range(handle)
+	}
+	if nodeCh.count < minNum {
+		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
+	}
+	return nodeCh, nil
+}
+
+// NewPeersIteratorWithListPeers creates an iterator that contains only the nodes set in the configuration file.
+func (s *NodeSelector) NewPeersIteratorWithListPeers(minNum int) (Iterator, error) {
+	if minNum > s.config.MaxNodeNum || minNum > int(s.peerNum.Load()) {
+		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
+	}
+	maxNum := 3 * minNum //Triple node redundancy
+	handle, nodeCh := s.newSelectFunc(maxNum)
+	s.listPeers.Range(handle)
+	if nodeCh.count < minNum {
+		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
+	}
+	return nodeCh, nil
+}
+
+// NewPeersIteratorWithActivePeers creates an iterator that does not contain the nodes set in the configuration file.
+// This also requires the selection strategy to support the selector to dynamically discover nodes.
+func (s *NodeSelector) NewPeersIteratorWithActivePeers(minNum int) (Iterator, error) {
+	if minNum > s.config.MaxNodeNum || minNum > int(s.peerNum.Load()) {
+		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
+	}
+	maxNum := 3 * minNum //Triple node redundancy
+	handle, nodeCh := s.newSelectFunc(maxNum)
+	if s.config.Strategy != FIXED_STRATEGY {
+		s.activePeers.Range(handle)
+	}
+	if nodeCh.count < minNum {
+		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
+	}
+	return nodeCh, nil
+}
+
+func (s *NodeSelector) newSelectFunc(maxNum int) (func(key, value any) bool, *NodeMap) {
+
 	nodeCh := &NodeMap{
 		nodes: make(map[string]peer.AddrInfo),
 	}
@@ -384,17 +435,10 @@ func (s *NodeSelector) NewPeersIterator(minNum int) (Iterator, error) {
 		}
 		return true
 	}
-	s.listPeers.Range(handle)
-
-	if s.config.Strategy != FIXED_STRATEGY {
-		s.activePeers.Range(handle)
-	}
-	if nodeCh.count < minNum {
-		return nil, errors.Wrap(errors.New("not enough nodes"), "create peers iterator error")
-	}
-	return nodeCh, nil
+	return handle, nodeCh
 }
 
+// ClearBlackList is used to clear the blacklist of node selectors
 func (s *NodeSelector) ClearBlackList() {
 	s.blackList.ClearAll()
 	s.listPeers.Range(func(key, value any) bool {
@@ -405,6 +449,7 @@ func (s *NodeSelector) ClearBlackList() {
 	})
 }
 
+// Feedback is used to receive user feedback on a specific node in the node selector
 func (s *NodeSelector) Feedback(id string, isWrok bool) {
 	if isWrok {
 		s.reflashPeer(id)
