@@ -58,6 +58,8 @@ type Selector interface {
 	ClearBlackList()
 	FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer)
 	NewPeersIteratorWithConditions(minNum, maxNum int, conds ...func(key string, value NodeInfo) bool) (Iterator, error)
+	NewPeersIteratorWithListPeers(minNum int) (Iterator, error)
+	NewPeersIteratorWithActivePeers(minNum int) (Iterator, error)
 }
 
 type Iterator interface {
@@ -297,7 +299,8 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, peers ...peer.A
 				s.lastOne.Store(info)
 			}
 		} else if lastOne.TTL-info.TTL > PEER_NODES_GAP {
-			s.activePeers.Delete(string(lastOne.AddrInfo.ID))
+			s.activePeers.Delete(lastOne.AddrInfo.ID.String())
+			s.peerNum.Add(-1)
 			var max time.Duration
 			s.activePeers.Range(func(key, value any) bool {
 				v := value.(NodeInfo)
