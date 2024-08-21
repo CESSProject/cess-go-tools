@@ -53,7 +53,10 @@ const (
 type Selector interface {
 	NewPeersIterator(minNum int) (Iterator, error)
 	Feedback(id string, isWork bool)
-	FlushPeerNodes(pingTimeout time.Duration, peers ...peer.AddrInfo)
+	// FlushPeerNodes is used to refresh the node into the selector.
+	// The node can be added to the selector only when it can be connected within the specified delay
+	// and the custom pass condition returns true. The custom condition can be nil.
+	FlushPeerNodes(pingTimeout time.Duration, pass func() bool, peers ...peer.AddrInfo)
 	GetPeersNumber() int
 	ClearBlackList()
 	FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer)
@@ -252,8 +255,9 @@ func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discovere
 	})
 }
 
-func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, peers ...peer.AddrInfo) {
+func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, pass func() bool, peers ...peer.AddrInfo) {
 
+	listed := false
 	for _, peer := range peers {
 
 		key := peer.ID.String()
@@ -267,6 +271,7 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, peers ...peer.A
 		}
 		point := s.activePeers
 		if value, ok := s.listPeers.Load(key); ok {
+			listed = true
 			v := value.(NodeInfo)
 			if (!v.Available && time.Since(v.FlushTime) < time.Hour) ||
 				(v.Available && time.Since(v.FlushTime) < time.Duration(s.config.FlushInterval)) {
@@ -284,12 +289,18 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, peers ...peer.A
 		} else {
 			if s.peerNum.Load() >= int32(s.config.MaxNodeNum) {
 				swap = true
+			} else {
+				s.peerNum.Add(1)
 			}
-			s.peerNum.Add(1)
 		}
 		info.TTL = GetConnectTTL(peer.Addrs, pingTimeout)
 		if info.TTL > 0 && info.TTL < time.Duration(s.config.MaxTTL) {
 			info.Available = true
+		} else if !listed {
+			continue
+		}
+		if pass != nil && !pass() {
+			continue
 		}
 		point.Store(key, info)
 
