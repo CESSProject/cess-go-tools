@@ -257,7 +257,6 @@ func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discovere
 
 func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, pass func() bool, peers ...peer.AddrInfo) {
 
-	listed := false
 	for _, peer := range peers {
 
 		key := peer.ID.String()
@@ -271,7 +270,7 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, pass func() boo
 		}
 		point := s.activePeers
 		if value, ok := s.listPeers.Load(key); ok {
-			listed = true
+
 			v := value.(NodeInfo)
 			if (!v.Available && time.Since(v.FlushTime) < time.Hour) ||
 				(v.Available && time.Since(v.FlushTime) < time.Duration(s.config.FlushInterval)) {
@@ -294,14 +293,13 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, pass func() boo
 			}
 		}
 		info.TTL = GetConnectTTL(peer.Addrs, pingTimeout)
-		if info.TTL > 0 && info.TTL < time.Duration(s.config.MaxTTL) {
-			info.Available = true
-		} else if !listed {
+		if info.TTL <= 0 || info.TTL > time.Duration(s.config.MaxTTL) {
 			continue
 		}
 		if pass != nil && !pass() {
 			continue
 		}
+		info.Available = true
 		point.Store(key, info)
 
 		lastOne := s.lastOne.Load().(NodeInfo)
