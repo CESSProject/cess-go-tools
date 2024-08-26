@@ -264,13 +264,13 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, pass func() boo
 			continue
 		}
 		swap := false
+		newnode := false
 		info := NodeInfo{
 			AddrInfo:  peer,
 			FlushTime: time.Now(),
 		}
 		point := s.activePeers
-		if value, ok := s.listPeers.Load(key); ok {
-
+		if value, ok := s.listPeers.Load(key); ok { // node in listed peers list
 			v := value.(NodeInfo)
 			if (!v.Available && time.Since(v.FlushTime) < time.Hour) ||
 				(v.Available && time.Since(v.FlushTime) < time.Duration(s.config.FlushInterval)) {
@@ -278,7 +278,7 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, pass func() boo
 			}
 			info.NePoints = v.NePoints
 			point = s.listPeers
-		} else if value, ok := s.activePeers.Load(key); ok {
+		} else if value, ok := s.activePeers.Load(key); ok { // node in active peers list
 			v := value.(NodeInfo)
 			if (!v.Available && time.Since(v.FlushTime) < time.Hour) ||
 				(v.Available && time.Since(v.FlushTime) < time.Duration(s.config.FlushInterval)) {
@@ -286,30 +286,38 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, pass func() boo
 			}
 			info.NePoints = v.NePoints
 		} else {
+			newnode = true
 			if s.peerNum.Load() >= int32(s.config.MaxNodeNum) {
 				swap = true
-			} else {
-				s.peerNum.Add(1)
 			}
 		}
+
 		info.TTL = GetConnectTTL(peer.Addrs, pingTimeout)
 		if info.TTL <= 0 || info.TTL > time.Duration(s.config.MaxTTL) {
 			continue
 		}
+
+		// user-defined selection criteria
 		if pass != nil && !pass() {
 			continue
 		}
+
+		if newnode && !swap {
+			s.peerNum.Add(1) // add new node
+		}
 		info.Available = true
-		point.Store(key, info)
+		point.Store(key, info) // flush node info
 
 		lastOne := s.lastOne.Load().(NodeInfo)
 		if !swap {
 			if lastOne.TTL < info.TTL {
-				s.lastOne.Store(info)
+				s.lastOne.Store(info) // update the worst connection node
 			}
-		} else if lastOne.TTL-info.TTL > PEER_NODES_GAP {
+			continue
+		}
+
+		if lastOne.TTL-info.TTL > PEER_NODES_GAP {
 			s.activePeers.Delete(lastOne.AddrInfo.ID.String())
-			s.peerNum.Add(-1)
 			var max time.Duration
 			s.activePeers.Range(func(key, value any) bool {
 				v := value.(NodeInfo)
@@ -318,8 +326,12 @@ func (s *NodeSelector) FlushPeerNodes(pingTimeout time.Duration, pass func() boo
 					max = v.TTL
 				}
 				return true
-			})
+			}) // update the worst connection node
+		} else {
+			// invalid new node
+			s.activePeers.Delete(key)
 		}
+
 	}
 }
 
