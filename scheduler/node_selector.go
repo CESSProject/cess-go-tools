@@ -190,8 +190,8 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 				Addrs: addrs,
 			},
 			FlushTime: time.Now(),
-			Available: ttl > 0 && ttl <= time.Duration(maxTTL),
-			TTL:       ttl,
+			//Available: ttl > 0 && ttl <= time.Duration(maxTTL),
+			TTL: ttl,
 		}
 		selector.listPeers.Store(key, info)
 		selector.peerNum.Add(1)
