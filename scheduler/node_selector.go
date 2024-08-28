@@ -59,10 +59,10 @@ type Selector interface {
 	FlushPeerNodes(pingTimeout time.Duration, pass func() bool, peers ...peer.AddrInfo)
 	GetPeersNumber() int
 	ClearBlackList()
-	FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer)
 	NewPeersIteratorWithConditions(minNum, maxNum int, conds ...func(key string, value NodeInfo) bool) (Iterator, error)
 	NewPeersIteratorWithListPeers(minNum int) (Iterator, error)
 	NewPeersIteratorWithActivePeers(minNum int) (Iterator, error)
+	FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer, pass func() bool)
 }
 
 type Iterator interface {
@@ -228,7 +228,7 @@ func (c *NodeMap) GetPeer() (peer.AddrInfo, bool) {
 }
 
 // FlushlistedPeerNodes is used to update the status information of the node specified by the configuration file in the node selector
-func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer) {
+func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discoverer Discoverer, pass func() bool) {
 	s.listPeers.Range(func(key, value any) bool {
 		k := key.(string)
 		v := value.(NodeInfo)
@@ -242,6 +242,11 @@ func (s *NodeSelector) FlushlistedPeerNodes(pingTimeout time.Duration, discovere
 		}
 		addr, err := discoverer.FindPeer(context.Background(), peer.ID(bk))
 		if err != nil {
+			if len(v.AddrInfo.Addrs) == 0 {
+				return true
+			}
+		}
+		if pass != nil && !pass() {
 			return true
 		}
 		v.AddrInfo = addr
