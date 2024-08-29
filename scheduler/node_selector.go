@@ -83,7 +83,7 @@ type SelectorConfig struct {
 	NodeFilePath  string `name:"NodeFile" toml:"NodeFile" yaml:"NodeFile"`
 	MaxNodeNum    int    `name:"MaxNodeNum" toml:"MaxNodeNum" yaml:"MaxNodeNum"`
 	MaxTTL        int64  `name:"MaxTTL" toml:"MaxTTL" yaml:"MaxTTL"`                      // unit: millisecond, default: 300 ms
-	FlushInterval int64  `name:"FlushInterval" toml:"FlushInterval" yaml:"FlushInterval"` // unit: hours, default: 4h
+	FlushInterval int64  `name:"FlushInterval" toml:"FlushInterval" yaml:"FlushInterval"` // unit: second, default: 4*60*60 second (4 hours)
 }
 
 type NodeInfo struct {
@@ -113,8 +113,8 @@ func NewNodeSelectorWithConfig(config SelectorConfig) (Selector, error) {
 		config.Strategy,
 		config.NodeFilePath,
 		config.MaxNodeNum,
-		config.MaxTTL,
-		config.FlushInterval,
+		time.Duration(config.MaxTTL)*time.Millisecond,
+		time.Duration(config.FlushInterval)*time.Second,
 	)
 }
 
@@ -122,19 +122,16 @@ func NewNodeSelectorWithConfig(config SelectorConfig) (Selector, error) {
 // strategy can be "fixed" or "priority", which means only using or priority using the specified node list respectively.
 // nodeFilePath is the json file path of the node list you specify.
 // maxNodeNum is used to specify the maximum available stable node.
-// The units of parameters maxTTL and flushInterval are milliseconds and hours respectively.
-func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flushInterval int64) (Selector, error) {
+func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flushInterval time.Duration) (Selector, error) {
 	selector := new(NodeSelector)
 	if maxNodeNum <= 0 || maxNodeNum > MAX_ALLOWED_NODES {
 		maxNodeNum = MAX_ALLOWED_NODES
 	}
-	maxTTL *= int64(time.Millisecond)
-	if maxTTL <= 0 || maxTTL > int64(DEFAULT_MAX_TTL) {
-		maxTTL = int64(DEFAULT_MAX_TTL)
+	if maxTTL <= 0 || maxTTL > DEFAULT_MAX_TTL {
+		maxTTL = DEFAULT_MAX_TTL
 	}
-	flushInterval *= int64(time.Hour)
-	if flushInterval <= 0 || flushInterval > int64(DEFAULT_FLUSH_TIME) {
-		flushInterval = int64(DEFAULT_FLUSH_TIME)
+	if flushInterval <= 0 || flushInterval > DEFAULT_FLUSH_TIME {
+		flushInterval = DEFAULT_FLUSH_TIME
 	}
 
 	var nodeList NodeList
@@ -205,10 +202,10 @@ func NewNodeSelector(strategy, nodeFilePath string, maxNodeNum int, maxTTL, flus
 	}
 	selector.config = SelectorConfig{
 		MaxNodeNum:    maxNodeNum,
-		MaxTTL:        maxTTL,
+		MaxTTL:        int64(maxTTL),
 		Strategy:      strategy,
 		NodeFilePath:  nodeFilePath,
-		FlushInterval: flushInterval,
+		FlushInterval: int64(flushInterval),
 	}
 	selector.activePeers = &sync.Map{}
 	return selector, nil
